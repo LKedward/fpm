@@ -221,7 +221,7 @@ contains
                 stop 2
             end select
             !*! canon_path is not converting ".", etc.
-            name=canon_path(name)
+            name=name
             if( .not.is_fortran_name(basename(name)) )then
                 write(stderr,'(g0)') [ character(len=72) :: &
                 & '<ERROR>the new directory basename must be an allowed ', &
