@@ -5,10 +5,11 @@ module fpm_filesystem
     use fpm_strings, only: f_string, string_t, split
     implicit none
     private
-    public :: basename, canon_path, dirname, is_dir, join_path, number_of_rows, read_lines, list_files, env_variable, &
+    public :: basename, canon_path, getcwd, dirname, is_dir, join_path, number_of_rows, read_lines, list_files, env_variable, &
             mkdir, exists, get_temp_filename, windows_path, unix_path, getline, delete_file
 
     integer, parameter :: LINE_BUFFER_LEN = 1000
+    integer, parameter :: MAX_PATH = 1000
 
 contains
 
@@ -169,6 +170,61 @@ logical function is_dir(dir)
     is_dir = (stat == 0) 
 
 end function is_dir 
+
+
+function getcwd() result(cwd)
+    use iso_c_binding, only: c_char, c_int, c_loc, c_ptr, c_size_t, c_null_char, c_null_ptr
+    character(:), allocatable :: cwd
+
+    type(c_ptr) :: ptr
+    character(c_char), target :: result_c(MAX_PATH)
+    integer :: i, n
+
+#ifdef _WIN32
+
+    interface
+        function getcwd_c(buffer, size) result(ptr) bind(C,name="_getcwd")
+            import
+            type(c_ptr), value :: buffer
+            integer(c_int), intent(in), value :: size
+            type(c_ptr) :: ptr
+        end function getcwd_c
+    end interface
+    
+    ptr = getcwd_c(c_loc(result_c),int(MAX_PATH,c_int))
+
+#else
+
+    interface
+        function getcwd_c(buffer, size) result(ptr) bind(C,name="getcwd")
+            import
+            type(c_ptr), value :: buffer
+            integer(c_size_t), intent(in), value :: size
+            type(c_ptr) :: ptr
+        end function getcwd_c
+    end interface
+
+    ptr = getcwd_c(c_loc(result_c),int(MAX_PATH,c_size_t))
+
+#endif
+
+
+    if (transfer(ptr,c_size_t) == transfer(c_null_ptr,c_size_t)) then
+        write(*,*) 'cwd failed'
+        error stop
+    end if
+
+    n = findloc(result_c,c_null_char,1)-1
+
+    allocate(character(len=n) :: cwd)
+
+    do i=1,n
+
+        cwd(i:i) = result_c(i)
+
+    end do
+
+end function getcwd
 
 
 function join_path(a1,a2,a3,a4,a5) result(path)
