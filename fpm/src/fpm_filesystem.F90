@@ -82,20 +82,26 @@ function canon_path(path) result(canon)
 
     integer :: i, j
     integer :: iback
-    character(len(path)) :: nixpath
-    character(len(path)) :: temp
+    character(:), allocatable :: nixpath
+    character(:), allocatable :: temp
 
-    nixpath = unix_path(path)
+    if (path(1:1) /= '/') then
+        nixpath = unix_path(getcwd()//'/'//path)
+    else
+        nixpath = unix_path(path)
+    end if
+
+    allocate(character(len(nixpath)) :: temp)
 
     j = 1
     do i=1,len(nixpath)
 
         ! Skip back to last directory for '/../'
-        if (i > 4) then
+        if (i > 4 .and. j > 4) then
 
             if (nixpath(i-3:i) == '/../') then
 
-                iback = scan(nixpath(1:i-4),'/',back=.true.)
+                iback = scan(temp(1:j-4),'/',back=.true.)
                 if (iback > 0) then
                     j = iback + 1
                     cycle
@@ -105,10 +111,10 @@ function canon_path(path) result(canon)
 
         end if
 
-        if (i > 1 .and. j > 1) then
+        if (i > 1) then
 
             ! Ignore current directory reference
-            if (nixpath(i-1:i) == './') then
+            if (j > 1 .and. nixpath(i-1:i) == './') then
 
                 j = j - 1
                 cycle
@@ -120,6 +126,12 @@ function canon_path(path) result(canon)
 
                 cycle
 
+            end if
+
+            ! Ignore trailing '/.'
+            if (j > 1 .and. i == len(nixpath) .and. nixpath(i-1:i) == '/.') then
+                j = j - 1
+                exit
             end if
 
             ! Do NOT include trailing slash
