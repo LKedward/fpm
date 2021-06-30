@@ -5,7 +5,7 @@ use,intrinsic :: iso_fortran_env, only : stdin=>input_unit, stdout=>output_unit,
     use fpm_environment, only: get_os_type, &
                                OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
                                OS_CYGWIN, OS_SOLARIS, OS_FREEBSD, OS_OPENBSD
-    use fpm_environment, only: separator, get_env
+    use fpm_environment, only: separator, get_env,run
     use fpm_strings, only: f_string, replace, string_t, split
     implicit none
     private
@@ -297,12 +297,14 @@ subroutine mkdir(dir)
 
     select case (get_os_type())
         case (OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_CYGWIN, OS_SOLARIS, OS_FREEBSD, OS_OPENBSD)
-            call execute_command_line('mkdir -p ' // dir, exitstat=stat)
-            write (*, '(" + ",2a)') 'mkdir -p ' // dir
+            call run('mkdir -p ' // dir, echo=.false., exitstat=stat)
+            ! call execute_command_line('mkdir -p ' // dir, exitstat=stat)
+            ! write (*, '(" + ",2a)') 'mkdir -p ' // dir
 
         case (OS_WINDOWS)
-            call execute_command_line("mkdir " // windows_path(dir), exitstat=stat)
-            write (*, '(" + ",2a)') 'mkdir ' // windows_path(dir)
+            call run("mkdir " // windows_path(dir), echo=.false., exitstat=stat)
+            ! call execute_command_line("mkdir " // windows_path(dir), exitstat=stat)
+            ! write (*, '(" + ",2a)') 'mkdir ' // windows_path(dir)
     end select
 
     if (stat /= 0) then

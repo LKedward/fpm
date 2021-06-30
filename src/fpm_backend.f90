@@ -34,6 +34,7 @@ use fpm_targets, only: build_target_t, build_target_ptr, FPM_TARGET_OBJECT, &
                        FPM_TARGET_C_OBJECT, FPM_TARGET_ARCHIVE, FPM_TARGET_EXECUTABLE
 use fpm_strings, only: string_cat, string_t
 
+!$use omp_lib, only: omp_get_num_threads
 implicit none
 
 private
@@ -46,10 +47,15 @@ subroutine build_package(targets,model)
     type(build_target_ptr), intent(inout) :: targets(:)
     type(fpm_model_t), intent(in) :: model
 
-    integer :: i, j
+    integer :: i, j, n, m, nc
     type(build_target_ptr), allocatable :: queue(:)
     integer, allocatable :: schedule_ptr(:), stat(:)
     logical :: build_failed, skip_current
+
+    character(len=*), parameter :: COLOR_RED = char(27)//"[31m"
+    character(len=*), parameter :: COLOR_GREEN = char(27)//"[32m"
+    character(len=*), parameter :: COLOR_YELLOW = char(27)//"[93m"
+    character(len=*), parameter :: COLOR_RESET = char(27)//"[0m"
 
     ! Need to make output directory for include (mod) files
     if (.not.exists(join_path(model%output_directory,model%package_name))) then
@@ -72,11 +78,48 @@ subroutine build_package(targets,model)
     build_failed = .false.
 
     ! Loop over parallel schedule regions
+    n = 1
+    nc = 0
     do i=1,size(schedule_ptr)-1
 
+        ! 
+        ! do j=schedule_ptr(i),(schedule_ptr(i+1)-1)
+
+        !     if (allocated(queue(j)%ptr%source)) then
+        !         write(*,*) basename(queue(j)%ptr%source%file_name),'...',repeat(' ',60)
+        !     else
+        !         write(*,*) basename(queue(j)%ptr%output_file),'...',repeat(' ',60)
+        !     end if
+
+        ! end do
+
+        ! n = floor(30.0d0*schedule_ptr(i)/schedule_ptr(size(schedule_ptr)))
+        ! write(*,'(A,I4,A)',advance="no") 'Building project |'//repeat('=',n)//repeat(' ',30-n)//'|',100*n/30,'%'//char(13)
+
+        ! write(*,'(A,I4,A,A)',advance="no") '[',100*schedule_ptr(i)/schedule_ptr(size(schedule_ptr)),'%] Compiling...',char(13)
+
         ! Build targets in schedule region i
-        !$omp parallel do default(shared) private(skip_current) schedule(dynamic,1)
+        !$omp parallel do default(shared) private(skip_current,m) schedule(dynamic,1)
         do j=schedule_ptr(i),(schedule_ptr(i+1)-1)
+
+            ! !$omp atomic read
+            ! m = n
+
+            !$omp critical
+
+            m = n
+
+            if (allocated(queue(j)%ptr%source)) then
+                write(*,'(A,T40,A,A)') basename(queue(j)%ptr%source%file_name),COLOR_YELLOW//'compiling...'//COLOR_RESET
+            else
+                write(*,'(A,T40,A,A)') basename(queue(j)%ptr%output_file),COLOR_YELLOW//'compiling...'//COLOR_RESET
+            end if
+            write(*,'(A,I4,A,A)',advance="no") '[',100*nc/size(queue),'%] Compiling project...',char(13)
+
+            n = n + 1
+            
+
+            !$omp end critical
 
             ! Check if build already failed
             !$omp atomic read
@@ -92,7 +135,38 @@ subroutine build_package(targets,model)
                 build_failed = .true.
             end if
 
+            ! !$omp atomic
+            
+
+            !$omp critical
+
+            nc = nc + 1
+
+            write(*,'(A)',advance="no") repeat(char(27)//"[1A",n-m)//char(27)//"[2K"//char(27)//"[1G"
+            if (allocated(queue(j)%ptr%source)) then
+                    write(*,'(A,T40,A,A)') basename(queue(j)%ptr%source%file_name),COLOR_GREEN//'done.'//COLOR_RESET
+                else
+                    write(*,'(A,T40,A,A)') basename(queue(j)%ptr%output_file),COLOR_GREEN//'done.'//COLOR_RESET
+                end if
+            write(*,'(A)',advance="no") repeat(char(27)//"[1B",n-m)//char(27)//"[2K"//char(27)//"[1G"
+            ! write(*,*) basename(queue(j)%ptr%output_file),'...',repeat(' ',20)
+            write(*,'(A,I4,A,A)',advance="no") '[',100*nc/size(queue),'%] Compiling project...',char(13)
+
+            !$omp end critical
+
         end do
+
+        ! write(*,*) repeat(char(27)//"[1A",2+(schedule_ptr(i+1)-1)-schedule_ptr(i))
+        ! do j=schedule_ptr(i),(schedule_ptr(i+1)-1)
+
+        !     if (allocated(queue(j)%ptr%source)) then
+        !         write(*,'(A,T40,A,A)') basename(queue(j)%ptr%source%file_name),COLOR_GREEN//'done.'//COLOR_RESET,repeat(' ',60)
+        !     else
+        !         write(*,'(A,T40,A,A)') basename(queue(j)%ptr%output_file),COLOR_GREEN//'done.'//COLOR_RESET,repeat(' ',60)
+        !     end if
+            
+
+        ! end do
 
         ! Check if this schedule region failed: exit with message if failed
         if (build_failed) then
@@ -105,6 +179,8 @@ subroutine build_package(targets,model)
         end if
 
     end do
+
+    write(*,*) repeat(' ',60)
 
 end subroutine build_package
 
@@ -267,16 +343,16 @@ subroutine build_target(model,target,stat)
 
     case (FPM_TARGET_OBJECT)
         call run(model%fortran_compiler//" -c " // target%source%file_name // target%compile_flags &
-              // " -o " // target%output_file, echo=.true., exitstat=stat)
+              // " -o " // target%output_file, echo=.false., verbose=.false., exitstat=stat)
 
     case (FPM_TARGET_C_OBJECT)
         call run(model%c_compiler//" -c " // target%source%file_name // target%compile_flags &
-                // " -o " // target%output_file, echo=.true., exitstat=stat)
+                // " -o " // target%output_file, echo=.false., verbose=.false., exitstat=stat)
 
     case (FPM_TARGET_EXECUTABLE)
 
         call run(model%fortran_compiler// " " // target%compile_flags &
-              //" "//target%link_flags// " -o " // target%output_file, echo=.true., exitstat=stat)
+              //" "//target%link_flags// " -o " // target%output_file, verbose=.false., echo=.false., exitstat=stat)
 
     case (FPM_TARGET_ARCHIVE)
 
@@ -284,11 +360,11 @@ subroutine build_target(model,target,stat)
         case (OS_WINDOWS)
             call write_response_file(target%output_file//".resp" ,target%link_objects)
             call run(model%archiver // target%output_file // " @" // target%output_file//".resp", &
-                     echo=.true., exitstat=stat)
+                     echo=.false., verbose=.false., exitstat=stat)
 
         case default
             call run(model%archiver // target%output_file // " " // string_cat(target%link_objects," "), &
-                     echo=.true., exitstat=stat)
+                     echo=.false., verbose=.false., exitstat=stat)
 
         end select
 
